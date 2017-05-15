@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import os
-
+import numpy as np
 from cntk import reduce_mean
 
 def plot_images(images, subplot_shape, iteration):
@@ -9,12 +9,17 @@ def plot_images(images, subplot_shape, iteration):
         os.makedirs(dirToSave)
     filePathName = dirToSave + "test_"
     path = ''.join([filePathName, "_", str(iteration).zfill(4), '.png'])
-
+    path_txt = ''.join([filePathName, "_", str(iteration).zfill(4), '.txt'])
     plt.style.use('ggplot')
     fig, axes = plt.subplots(*subplot_shape)
+    indx = 0
     for image, ax in zip(images, axes.flatten()):
-        ax.imshow(image.reshape(28, 28), vmin=0, vmax=1.0, cmap='gray')
+        reshaped = image.reshape(28, 28)
+        ax.imshow(reshaped, vmin=0, vmax=1.0, cmap='gray')
         ax.axis('off')
+        if indx == 0:
+            np.savetxt(path_txt, reshaped)
+        indx = indx + 1
     plt.savefig(path, dpi = 100)
 
 def logTensorBoard(trainer, tbWriter, prefix, trainStep):
