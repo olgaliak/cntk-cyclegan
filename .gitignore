@@ -1,0 +1,7 @@
+.ipynb_checkpoints
+data/*
+!data/trainingMNIST.7z
+*log*
+*testRes*
+.idea
+__pycache__
