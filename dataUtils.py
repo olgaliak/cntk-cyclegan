@@ -36,7 +36,7 @@ def create_map_file_from_folder(root_folder, class_mapping, include_unknown=Fals
                 for entry in os.listdir(folder):
                     filename = os.path.join(folder, entry)
                     if os.path.isfile(filename) and os.path.splitext(filename)[1] in file_endings:
-                        map_file.write("test{0}\t{1}\n".format(filename, class_id))
+                        map_file.write("{0}\t{1}\n".format(filename, class_id))
 
         if include_unknown:
             for entry in os.listdir(root_folder):
