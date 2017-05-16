@@ -7,11 +7,12 @@ import utils
 import cntk as C
 from cntk import Trainer
 from cntk.layers import default_options
-from cntk.device import gpu, cpu
-from cntk.initializer import normal
+from cntk.initializer import he_normal
+from cntk.layers import AveragePooling, BatchNormalization, Convolution, ConvolutionTranspose2D, Dense
+from cntk.ops import element_times, relu
+import cntk.device
 from cntk.io import (MinibatchSource, ImageDeserializer, CTFDeserializer, StreamDef, StreamDefs,
                      INFINITELY_REPEAT)
-from cntk.layers import Dense, Convolution2D, ConvolutionTranspose2D, BatchNormalization
 from cntk.learners import (adam, UnitType, learning_rate_schedule,
                            momentum_as_time_constant_schedule, momentum_schedule)
 from cntk.logging import ProgressPrinter, TensorBoardProgressWriter
@@ -27,23 +28,89 @@ def create_mb_source(map_file, image_dims, num_classes, randomize=True):
         labels=StreamDef(field='label', shape=num_classes))),
                            randomize=randomize)
 
+def conv_bn(input, filter_size, num_filters, strides=(1,1), init=he_normal()):
+    c = Convolution(filter_size, num_filters, activation=None, init=init, pad=True, strides=strides, bias=False)(input)
+    r = BatchNormalization(map_rank=1, normalization_time_constant=4096, use_cntk_engine=False)(c)
+    return r
 
-def generator():
-    print("TBD")
+def conv_bn_relu(input, filter_size, num_filters, strides=(1,1), init=he_normal()):
+    r = conv_bn(input, filter_size, num_filters, strides, init)
+    return relu(r)
+
+def conv_frac_bn(input, filter_size, num_filters, strides=(1,1), init=he_normal()):
+    c = ConvolutionTranspose2D(filter_size, num_filters, activation=None, init=init, pad=True, strides=strides, bias=False)(input)
+    r = BatchNormalization(map_rank=1, normalization_time_constant=4096, use_cntk_engine=False)(c)
+    return r
+
+def conv_fract_bn_relu(input, filter_size, num_filters, strides=(1,1), init=he_normal()):
+    r = conv_frac_bn(input, filter_size, num_filters, strides, init)
+    return relu(r)
+
+def resnet_basic(input, num_filters):
+    c1 = conv_bn_relu(input, (3,3), num_filters)
+    c2 = conv_bn(c1, (3,3), num_filters)
+    p  = c2 + input
+    return relu(p)
+
+def resnet_basic_stack(input, num_stack_layers, num_filters):
+    assert (num_stack_layers >= 0)
+    l = input
+    for _ in range(num_stack_layers):
+        l = resnet_basic(l, num_filters)
+    return l
+
+def generator(h0):
+    with default_options(init=C.normal(scale=0.02)):
+        print('Generator input shape: ', h0.shape)
+
+
+        # c7s1-32,d64,d128,R128,R128,R128, R128,R128,R128,R128,R128,R128,u64,u32,c7s1-3
+        # c7s1-32
+        h1 = conv_bn_relu(h0, (7,7), 32)
+        print('h1 shape', h1.shape)
+
+        # d64
+        h2 = conv_bn_relu(h1, (3,3), 64, strides=(2,2))
+        print('h2 shape', h2.shape)
+
+        # d128
+        h3 = conv_bn_relu(h2, (3,3), 128, strides=(2,2))
+        print('h3 shape', h3.shape)
+
+        # R128 x 9
+        h4 = resnet_basic_stack(h3, 9, 128)
+        print('h4 shape', h4.shape)
+
+        # u64
+        h5 = conv_fract_bn_relu(h4, (3,3), 64, (2, 2))
+        print('h5 shape', h5.shape)
+
+        # u32
+        h6 = conv_fract_bn_relu(h5, (3,3), 32, (2, 2))
+        print('h6 shape', h6.shape)
+
+        # c7s1-3
+        h7 = conv_bn_relu(h6, (7,7), 3)
+        print('h7 shape', h7.shape)
+        return h7
+
 
 
 def discriminator():
     print("TBD")
 
-def main():
-    print("TBD")
+if __name__=='__main__':
 
+    num_channels, image_height, image_width = (3, 256, 256)
+    h0 = C.input((num_channels, image_height, image_width))
+    genG = generator(h0)
     # DEFINE OUR MODEL AND LOSS FUNCTIONS
     # -------------------------------------------------------
 
     real_X = None # read images
     real_Y = None # TBD
 
+def dummy():
     # genG(X) => Y            - fake_B
     genG = generator(real_X, name="generatorG")
     # genF(Y) => X            - fake_A
@@ -109,12 +176,11 @@ def main():
                          OPTIM_PARAMS['start_lr'][0], OPTIM_PARAMS['end_lr'][0], OPTIM_PARAMS['lr_decay_start'][0],
                          OPTIM_PARAMS['momentum'][0], 'F')
 
-     for train_step in range(NUM_MINIBATCHES):
+    for train_step in range(NUM_MINIBATCHES):
         generated_X, generated_Y = sess.run([genF, genG])
         _, _, _, _, summary_str = sess.run([G_optim, DY_optim, F_optim, DX_optim, summary_op],
                                    feed_dict={fake_Y_sample: cache_Y.fetch(generated_Y),
                                               fake_X_sample: cache_X.fetch(generated_X)})
-
 
 
 
