@@ -9,7 +9,7 @@ from cntk import Trainer
 from cntk.layers import default_options
 from cntk.initializer import he_normal
 from cntk.layers import AveragePooling, BatchNormalization, LayerNormalization, Convolution, ConvolutionTranspose2D, Dense
-from cntk.ops import element_times, relu
+from cntk.ops import element_times, relu, leaky_relu, reduce_mean
 import cntk.device
 from cntk.io import (MinibatchSource, ImageDeserializer, CTFDeserializer, StreamDef, StreamDefs,
                      INFINITELY_REPEAT)
@@ -19,6 +19,14 @@ from cntk.logging import ProgressPrinter, TensorBoardProgressWriter
 
 import cntk.io.transforms as xforms
 
+L1_lambda = 10
+
+# training config
+MINIBATCH_SIZE = 128
+NUM_MINIBATCHES = 5000 if isFast else 10000
+LR = 0.0002
+MOMENTUM = 0.5  # equivalent to beta1
+
 # Creates a minibatch source for training or testing
 def create_mb_source(map_file, image_dims, num_classes, randomize=True):
     transforms = [
@@ -27,6 +35,9 @@ def create_mb_source(map_file, image_dims, num_classes, randomize=True):
         features=StreamDef(field='image', transforms=transforms),
         labels=StreamDef(field='label', shape=num_classes))),
                            randomize=randomize)
+def conv(input, filter_size, num_filters, strides=(1,1), init=he_normal()):
+    c = Convolution(filter_size, num_filters, activation=None, init=init, pad=True, strides=strides, bias=False)(input)
+    return c
 
 def conv_bn(input, filter_size, num_filters, strides=(1,1), init=he_normal()):
     c = Convolution(filter_size, num_filters, activation=None, init=init, pad=True, strides=strides, bias=False)(input)
@@ -41,6 +52,15 @@ def conv_layernorm(input, filter_size, num_filters, strides=(1,1), init=he_norma
 def conv_bn_relu(input, filter_size, num_filters, strides=(1,1), init=he_normal()):
     r = conv_bn(input, filter_size, num_filters, strides, init)
     return relu(r)
+
+def conv_bn_leaky_relu(input, filter_size, num_filters, strides=(1,1), init=he_normal()):
+    r = conv_bn(input, filter_size, num_filters, strides, init)
+    return leaky_relu(r)
+
+def conv_leaky_relu(input, filter_size, num_filters, strides=(1,1), init=he_normal()):
+    r = conv(input, filter_size, num_filters, strides, init)
+    return leaky_relu(r)
+
 
 def conv_frac_bn(input, filter_size, num_filters, strides=(1,1), init=he_normal()):
     c = ConvolutionTranspose2D(filter_size, num_filters, activation=None, init=init, pad=True, strides=strides, bias=False)(input)
@@ -66,7 +86,6 @@ def resblock_basic_stack(input, num_stack_layers, num_filters):
 def generator(h0):
     with default_options(init=C.normal(scale=0.02)):
         print('Generator input shape: ', h0.shape)
-
 
         # c7s1-32,d64,d128,R128,R128,R128, R128,R128,R128,R128,R128,R128,u64,u32,c7s1-3
         # c7s1-32
@@ -100,14 +119,31 @@ def generator(h0):
 
 
 
-def discriminator():
-    print("TBD")
+def discriminator(h0):
+    with default_options(init=C.normal(scale=0.02)):
+        print('Discriminator input shape: ', h0.shape)
+
+        h1 = conv_leaky_relu(h0, (4,4), 64, strides=(2,2))
+        print('h1 shape', h1.shape)
+
+        h2 = conv_bn_leaky_relu(h1, (4,4), 128, strides=(2,2))
+        print('h2 shape', h2.shape)
+
+        h3 = conv_bn_leaky_relu(h2, (4,4), 256, strides=(2,2))
+        print('h3 shape', h3.shape)
+
+        h4 = conv_bn_leaky_relu(h3, (4,4), 512, strides=(2,2))
+        print('h4 shape', h4.shape)
+
+        h5 = conv(h4, (1,1), 1, strides=(1,1))
+        print('h5 shape', h5.shape)
 
 if __name__=='__main__':
 
     num_channels, image_height, image_width = (3, 256, 256)
     h0 = C.input((num_channels, image_height, image_width))
     genG = generator(h0)
+    disc = discriminator(h0)
     # DEFINE OUR MODEL AND LOSS FUNCTIONS
     # -------------------------------------------------------
 
@@ -129,16 +165,17 @@ def dummy():
     discY_fake = discriminator(genG, reuse=False, name="discY")
     discX_fake = discriminator(genF, reuse=False, name="discX")
 
-    g_loss_G = tf.reduce_mean((discY_fake - tf.ones_like(discY_fake)) ** 2) \
-            + L1_lambda * tf.reduce_mean(tf.abs(real_X - genF_back)) \
-            + L1_lambda * tf.reduce_mean(tf.abs(real_Y - genG_back))
+    g_loss_G = reduce_mean((discY_fake - np.ones(discY_fake)) ** 2) \
+            + L1_lambda * reduce_mean(np.abs(real_X - genF_back)) \
+            + L1_lambda * reduce_mean(np.abs(real_Y - genG_back))
 
-    g_loss_F = tf.reduce_mean((discX_fake - tf.ones_like(discX_fake)) ** 2) \
-            + L1_lambda * tf.reduce_mean(tf.abs(real_X - genF_back)) \
-            + L1_lambda * tf.reduce_mean(tf.abs(real_Y - genG_back))
+    g_loss_F = reduce_mean((discX_fake - np.ones(discX_fake)) ** 2) \
+            + L1_lambda * reduce_mean(np.abs(real_X - genF_back)) \
+            + L1_lambda * reduce_mean(np.abs(real_Y - genG_back))
 
-    fake_X_sample = tf.placeholder(tf.float32, [None, 256, 256, 3], name="fake_X_sample")
-    fake_Y_sample = tf.placeholder(tf.float32, [None, 256, 256, 3], name="fake_Y_sample")
+    input_dynamic_axes = [C.Axis.default_batch_axis()]
+    fake_X_sample = C.input((3, 256, 256),  input_dynamic_axes)
+    fake_Y_sample = C.input((3, 256, 256),  input_dynamic_axes)
 
     # DY is the discriminator for Y that takes in Y
     # DX is the discriminator for X that takes in X
@@ -147,12 +184,13 @@ def dummy():
     DY_fake_sample = discriminator(fake_Y_sample, reuse=True, name="discY")
     DX_fake_sample = discriminator(fake_X_sample, reuse=True, name="discX")
 
-    DY_loss_real = tf.reduce_mean((DY - tf.ones_like(DY) * np.abs(np.random.normal(1.0, softL_c))) ** 2)
-    DY_loss_fake = tf.reduce_mean((DY_fake_sample - tf.zeros_like(DY_fake_sample)) ** 2)
+    softL_c =1
+    DY_loss_real = reduce_mean((DY - np.ones_like(DY) * np.abs(np.random.normal(1.0, softL_c))) ** 2)
+    DY_loss_fake = reduce_mean((DY_fake_sample - np.zeros_like(DY_fake_sample)) ** 2)
     DY_loss = (DY_loss_real + DY_loss_fake) / 2
 
-    DX_loss_real = tf.reduce_mean((DX - tf.ones_like(DX) * np.abs(np.random.normal(1.0, softL_c))) ** 2)
-    DX_loss_fake = tf.reduce_mean((DX_fake_sample - tf.zeros_like(DX_fake_sample)) ** 2)
+    DX_loss_real = reduce_mean((DX - np.ones_like(DX) * np.abs(np.random.normal(1.0, softL_c))) ** 2)
+    DX_loss_fake = reduce_mean((DX_fake_sample - np.zeros_like(DX_fake_sample)) ** 2)
     DX_loss = (DX_loss_real + DX_loss_fake) / 2
 
     test_X = None # TBD read images
@@ -163,22 +201,21 @@ def dummy():
     testF_back = generator(testG, name="generatorF", reuse=True)
     testG_back = generator(testF, name="generatorG", reuse=True)
 
-    print('Optimizing using {}'.format(OPTIM_PARAMS))
-    DX_optim, DX_lr = adam(DX_loss, DX_vars,
-                           OPTIM_PARAMS['start_lr'][2], OPTIM_PARAMS['end_lr'][2], OPTIM_PARAMS['lr_decay_start'][2],
-                           OPTIM_PARAMS['momentum'][2], 'D_X')
+    print('Optimizing')
+    DX_optim= adam(DX_loss.parameters,
+        lr=learning_rate_schedule(LR, UnitType.sample),
+        momentum=momentum_schedule(0.5))
 
-    DY_optim, DY_lr = adam(DY_loss, DY_vars,
-                           OPTIM_PARAMS['start_lr'][3], OPTIM_PARAMS['end_lr'][3], OPTIM_PARAMS['lr_decay_start'][3],
-                           OPTIM_PARAMS['momentum'][3], 'D_Y')
+    DY_optim = adam(DY_loss.parameters,
+                    lr=learning_rate_schedule(LR, UnitType.sample),
+                    momentum=momentum_schedule(0.5))
+    G_optim = adam(g_loss_G.parameters,
+                    lr=learning_rate_schedule(LR, UnitType.sample),
+                    momentum=momentum_schedule(0.5))
 
-    G_optim, G_lr = adam(g_loss_G, g_vars_G,
-                         OPTIM_PARAMS['start_lr'][1], OPTIM_PARAMS['end_lr'][1], OPTIM_PARAMS['lr_decay_start'][1],
-                         OPTIM_PARAMS['momentum'][1], 'G')
-
-    F_optim, F_lr = adam(g_loss_F, g_vars_F,
-                         OPTIM_PARAMS['start_lr'][0], OPTIM_PARAMS['end_lr'][0], OPTIM_PARAMS['lr_decay_start'][0],
-                         OPTIM_PARAMS['momentum'][0], 'F')
+    F_optim = adam(g_loss_F.parameters,
+                    lr=learning_rate_schedule(LR, UnitType.sample),
+                    momentum=momentum_schedule(0.5))
 
     for train_step in range(NUM_MINIBATCHES):
         generated_X, generated_Y = sess.run([genF, genG])
