@@ -11,6 +11,22 @@ def create_class_mapping_from_folder(root_folder):
             classes.append(directory)
     return np.asarray(classes)
 
+# create a map file from a flat folder, ie don't traverse subdirectories and don't add it to the path
+def create_map_file_from_flatfolder(folder):
+    map_file_name = os.path.join(folder, "map.txt")
+    with open(map_file_name , 'w') as map_file:
+        for entry in os.listdir(folder):
+            filename = os.path.join(folder, entry)
+            if os.path.isfile(filename) and os.path.splitext(filename)[1] in file_endings:
+                tempName = '\\\\'.join(filename.split('\\'))
+                tempName = '\\\\'.join(tempName.split('//'))
+                tempName = '\\\\'.join(tempName.split('/'))
+                map_file.write("{0}\t0\n".format(tempName))
+
+
+    return map_file_name
+
+
 def create_map_file_from_folder(root_folder, class_mapping, include_unknown=False):
     map_file_name = os.path.join(root_folder, "map.txt")
     with open(map_file_name , 'w') as map_file:
@@ -20,7 +36,7 @@ def create_map_file_from_folder(root_folder, class_mapping, include_unknown=Fals
                 for entry in os.listdir(folder):
                     filename = os.path.join(folder, entry)
                     if os.path.isfile(filename) and os.path.splitext(filename)[1] in file_endings:
-                        map_file.write("{0}\t{1}\n".format(filename, class_id))
+                        map_file.write("test{0}\t{1}\n".format(filename, class_id))
 
         if include_unknown:
             for entry in os.listdir(root_folder):
@@ -58,9 +74,13 @@ def nparray_file_from_folder(root_folder, class_mapping, include_unknown=False):
     return map_file_name
 
 train_data = { }
-training_folder = "data//trainingMNIST"
-train_data['class_mapping'] = create_class_mapping_from_folder(training_folder)
+training_folder1 = "data//summer2winter_yosemite//trainA"
+training_folder2 = "data//summer2winter_yosemite//trainB"
+train_data['training_map'] = create_map_file_from_flatfolder(training_folder1)
+train_data['training_map'] = create_map_file_from_flatfolder(training_folder2)
+#train_data['training_map'] = create_map_file_from_flatfolder(training_folder2)
+#train_data['class_mapping'] = create_class_mapping_from_folder(training_folder1)
 #train_data['training_map'] = create_map_file_from_folder(training_folder, train_data['class_mapping'])
-train_data['npArray_map'] = nparray_file_from_folder(training_folder, train_data['class_mapping'])
+#train_data['npArray_map'] = nparray_file_from_folder(training_folder, train_data['class_mapping'])
 
 print("done!")
