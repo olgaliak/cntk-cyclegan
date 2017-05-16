@@ -8,7 +8,7 @@ import cntk as C
 from cntk import Trainer
 from cntk.layers import default_options
 from cntk.initializer import he_normal
-from cntk.layers import AveragePooling, BatchNormalization, Convolution, ConvolutionTranspose2D, Dense
+from cntk.layers import AveragePooling, BatchNormalization, LayerNormalization, Convolution, ConvolutionTranspose2D, Dense
 from cntk.ops import element_times, relu
 import cntk.device
 from cntk.io import (MinibatchSource, ImageDeserializer, CTFDeserializer, StreamDef, StreamDefs,
@@ -33,6 +33,11 @@ def conv_bn(input, filter_size, num_filters, strides=(1,1), init=he_normal()):
     r = BatchNormalization(map_rank=1, normalization_time_constant=4096, use_cntk_engine=False)(c)
     return r
 
+def conv_layernorm(input, filter_size, num_filters, strides=(1,1), init=he_normal()):
+    c = Convolution(filter_size, num_filters, activation=None, init=init, pad=True, strides=strides, bias=False)(input)
+    r = LayerNormalization()(c)
+    return r
+
 def conv_bn_relu(input, filter_size, num_filters, strides=(1,1), init=he_normal()):
     r = conv_bn(input, filter_size, num_filters, strides, init)
     return relu(r)
@@ -46,17 +51,16 @@ def conv_fract_bn_relu(input, filter_size, num_filters, strides=(1,1), init=he_n
     r = conv_frac_bn(input, filter_size, num_filters, strides, init)
     return relu(r)
 
-def resnet_basic(input, num_filters):
-    c1 = conv_bn_relu(input, (3,3), num_filters)
-    c2 = conv_bn(c1, (3,3), num_filters)
-    p  = c2 + input
-    return relu(p)
+def resblock_basic(input, num_filters):
+    c1 = conv_layernorm(input, (3,3), num_filters)
+    c2 = conv_layernorm(c1, (3, 3), num_filters)
+    return relu(c2)
 
-def resnet_basic_stack(input, num_stack_layers, num_filters):
+def resblock_basic_stack(input, num_stack_layers, num_filters):
     assert (num_stack_layers >= 0)
     l = input
     for _ in range(num_stack_layers):
-        l = resnet_basic(l, num_filters)
+        l = resblock_basic(l, num_filters)
     return l
 
 def generator(h0):
@@ -78,7 +82,7 @@ def generator(h0):
         print('h3 shape', h3.shape)
 
         # R128 x 9
-        h4 = resnet_basic_stack(h3, 9, 128)
+        h4 = resblock_basic_stack(h3, 9, 128)
         print('h4 shape', h4.shape)
 
         # u64
