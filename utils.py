@@ -14,11 +14,15 @@ def plot_images(images, subplot_shape, iteration):
     fig, axes = plt.subplots(*subplot_shape)
     indx = 0
     for image, ax in zip(images, axes.flatten()):
-        reshaped = image.reshape(28, 28)
+        reshaped = None
+        if image.shape[0] == 3:
+            reshaped = np.rollaxis(image, 0,3)
+        else:
+            reshaped = image.reshape(28, 28)
         ax.imshow(reshaped, vmin=0, vmax=1.0, cmap='gray')
         ax.axis('off')
-        if indx == 0:
-            np.savetxt(path_txt, reshaped)
+      #  if indx == 0:
+      #      np.savetxt(path_txt, reshaped)
         indx = indx + 1
     plt.savefig(path, dpi = 100)
 

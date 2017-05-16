@@ -27,18 +27,18 @@ isFast = True
 PROGRESS_SAVE_STEP = 500
 
 # architectural parameters
+NUM_CHANNELS = 3
 IMG_H, IMG_W = 28, 28
-IMAGE_DIMS = (1, IMG_H, IMG_W)
+IMAGE_DIMS = (NUM_CHANNELS, IMG_H, IMG_W)
 KERNEL_H, KERNEL_W = 5, 5
 STRIDE_H, STRIDE_W = 2, 2
 
 # Input / Output parameter of Generator and Discriminator
 G_INPUT_DIM = 100
-G_OUTPUT_DIM = D_INPUT_DIM = IMG_H * IMG_W
 
 # training config
 MINIBATCH_SIZE = 128
-NUM_MINIBATCHES = 1000 if isFast else 10000
+NUM_MINIBATCHES = 5000 if isFast else 10000
 LR = 0.0002
 MOMENTUM = 0.5  # equivalent to beta1
 
@@ -52,27 +52,9 @@ if not data_found:
 
 print("Map file is {0}".format(MAP_FILE))
 
-
-def create_reader(path, is_training, input_dim, label_dim):
-    deserializer = CTFDeserializer(
-        filename=path,
-        streams=StreamDefs(
-            labels_unused=StreamDef(field='labels', shape=label_dim, is_sparse=False),
-            features=StreamDef(field='features', shape=input_dim, is_sparse=False
-                               )
-        )
-    )
-    return MinibatchSource(
-        deserializers=deserializer,
-        randomize=is_training,
-        max_sweeps=INFINITELY_REPEAT if is_training else 1
-    )
-
-
 # Creates a minibatch source for training or testing
-def create_mb_source(map_file, image_dims, num_classes, randomize=True):
-    transforms = [
-        xforms.scale(width=image_dims[2], height=image_dims[1], channels=image_dims[0], interpolations='linear')]
+def create_mb_source(map_file, num_classes, randomize=True):
+    transforms = [xforms.scale(width=IMG_H,  height = IMG_H, channels= NUM_CHANNELS, interpolations='linear')]
     return MinibatchSource(ImageDeserializer(map_file, StreamDefs(
         features=StreamDef(field='image', transforms=transforms),
         labels=StreamDef(field='label', shape=num_classes))),
@@ -134,18 +116,18 @@ def convolutional_generator(z):
         h1 = bn_with_relu(h1)
         print('h1 shape', h1.shape)
 
-        h2 = ConvolutionTranspose2D(gkernel,
+        h2 = ConvolutionTranspose2D((gkernel,gkernel),
                                     num_filters=gf_dim * 2,
-                                    strides=gstride,
+                                    strides=(gstride, gstride),
                                     pad=True,
                                     output_shape=(s_h2, s_w2),
                                     activation=None)(h1)
         h2 = bn_with_relu(h2)
         print('h2 shape', h2.shape)
 
-        h3 = ConvolutionTranspose2D(gkernel,
-                                    num_filters=1,
-                                    strides=gstride,
+        h3 = ConvolutionTranspose2D((gkernel,gkernel),
+                                    num_filters=NUM_CHANNELS,
+                                    strides=(gstride, gstride),
                                     pad=True,
                                     output_shape=(IMG_H, IMG_W),
                                     activation=C.sigmoid)(h2)
@@ -163,11 +145,11 @@ def convolutional_discriminator(x):
         print('Discriminator convolution input shape', x.shape)
         #  x = C.reshape(x, (1, img_h, img_w))
 
-        h0 = Convolution2D(dkernel, 1, strides=dstride)(x)
+        h0 = Convolution2D((dkernel, dkernel), 1, strides=(dstride, dstride))(x)
         h0 = bn_with_leaky_relu(h0, leak=0.2)
         print('h0 shape :', h0.shape)
 
-        h1 = Convolution2D(dkernel, df_dim, strides=dstride)(h0)
+        h1 = Convolution2D((dkernel, dkernel), df_dim, strides=(dstride, dstride))(h0)
         h1 = bn_with_leaky_relu(h1, leak=0.2)
         print('h1 shape :', h1.shape)
 
@@ -184,9 +166,7 @@ def build_graph(noise_shape, image_shape, generator, discriminator):
     input_dynamic_axes = [C.Axis.default_batch_axis()]
     Z = C.input(noise_shape, dynamic_axes=input_dynamic_axes)
     X_real = C.input(image_shape, dynamic_axes=input_dynamic_axes)
-    X_real_scaled = X_real / 255.0
-
-    # X_real_scaled = X_real
+    X_real_scaled = X_real/255
 
     # Create the model function for the generator and discriminator models
     X_fake = generator(Z)
@@ -238,8 +218,8 @@ def build_graph(noise_shape, image_shape, generator, discriminator):
 
 
 def train(reader_train, generator, discriminator):
-    # X_real, X_fake, Z, G_trainer, D_trainer = build_graph(g_input_dim, d_input_dim, generator, discriminator)
-    X_real, X_fake, Z, G_trainer, D_trainer, tb_G, tb_D = build_graph(G_INPUT_DIM, IMAGE_DIMS, generator, discriminator)
+    X_real, X_fake, Z, G_trainer, D_trainer, tb_G, tb_D = build_graph(G_INPUT_DIM, IMAGE_DIMS, generator,
+                                                                      discriminator)
 
     k = 2
 
@@ -277,7 +257,7 @@ def train(reader_train, generator, discriminator):
     return Z, X_fake, G_trainer_loss
 
 
-reader_train = create_mb_source(MAP_FILE, IMAGE_DIMS, num_classes=10)
+reader_train = create_mb_source(MAP_FILE, num_classes=10)
 
 G_input, G_output, G_trainer_loss = train(reader_train,
                                           convolutional_generator,
@@ -288,4 +268,3 @@ print("Training loss of the generator is: {0:.2f}".format(G_trainer_loss))
 noise = noise_sample(36)
 images = G_output.eval({G_input: noise})
 utils.plot_images(images, subplot_shape=[6, 6], iteration="test")
-print("done")
