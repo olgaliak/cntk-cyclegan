@@ -23,7 +23,7 @@ L1_lambda = 10
 
 # training config
 MINIBATCH_SIZE = 128
-NUM_MINIBATCHES = 5000 if isFast else 10000
+NUM_MINIBATCHES = 5000
 LR = 0.0002
 MOMENTUM = 0.5  # equivalent to beta1
 
@@ -138,32 +138,30 @@ def discriminator(h0):
         h5 = conv(h4, (1,1), 1, strides=(1,1))
         print('h5 shape', h5.shape)
 
-if __name__=='__main__':
+def build_graph(image_shape, generator, discriminator):
+    real_X = C.input(image_shape)
+    real_Y = C.input(image_shape)
+    fake_X_sample = C.input(image_shape)
+    fake_Y_sample = C.input(image_shape)
 
-    num_channels, image_height, image_width = (3, 256, 256)
-    h0 = C.input((num_channels, image_height, image_width))
-    genG = generator(h0)
-    disc = discriminator(h0)
-    # DEFINE OUR MODEL AND LOSS FUNCTIONS
-    # -------------------------------------------------------
-
-    real_X = None # read images
-    real_Y = None # TBD
-
-def dummy():
     # genG(X) => Y            - fake_B
-    genG = generator(real_X, name="generatorG")
+    genG = generator(real_X)
     # genF(Y) => X            - fake_A
-    genF = generator(real_Y, name="generatorF")
+    genF = generator(real_Y)
     # genF( genG(Y) ) => Y    - fake_A_
-    genF_back = generator(genG, name="generatorF", reuse=True)
+    genF_back = genG.clone(
+        method='share',
+        substitutions={real_X.output: genG.output}
+    )
     # genF( genG(X)) => X     - fake_B_
-    genG_back = generator(genF, name="generatorG", reuse=True)
-
+    genG_back = genF.clone(
+        method='share',
+        substitutions={real_Y.output: genF.output}
+    )
     # DY_fake is the discriminator for Y that takes in genG(X)
     # DX_fake is the discriminator for X that takes in genF(Y)
-    discY_fake = discriminator(genG, reuse=False, name="discY")
-    discX_fake = discriminator(genF, reuse=False, name="discX")
+    discY_fake = discriminator(genG)
+    discX_fake = discriminator(genF)
 
     g_loss_G = reduce_mean((discY_fake - np.ones(discY_fake)) ** 2) \
             + L1_lambda * reduce_mean(np.abs(real_X - genF_back)) \
@@ -173,18 +171,26 @@ def dummy():
             + L1_lambda * reduce_mean(np.abs(real_X - genF_back)) \
             + L1_lambda * reduce_mean(np.abs(real_Y - genG_back))
 
-    input_dynamic_axes = [C.Axis.default_batch_axis()]
-    fake_X_sample = C.input((3, 256, 256),  input_dynamic_axes)
-    fake_Y_sample = C.input((3, 256, 256),  input_dynamic_axes)
-
     # DY is the discriminator for Y that takes in Y
     # DX is the discriminator for X that takes in X
-    DY = discriminator(real_Y, reuse=True, name="discY")
-    DX = discriminator(real_X, reuse=True, name="discX")
-    DY_fake_sample = discriminator(fake_Y_sample, reuse=True, name="discY")
-    DX_fake_sample = discriminator(fake_X_sample, reuse=True, name="discX")
+    DY = discY_fake.clone(
+        method='share',
+        substitution={genG.output : real_Y.output}
+    )
+    DX = discX_fake.clone(
+        method='share',
+        substitution={genF.output : real_X.output}
+    )
+    DY_fake_sample = discY_fake.clone(
+        method='share',
+        substitution={genG.output : fake_Y_sample.output}
+    )
+    DX_fake_sameple = discX_fake.clone(
+        method='share',
+        substitution={genF.output : fake_X_sample.output}
+    )
 
-    softL_c =1
+    softL_c =0.05
     DY_loss_real = reduce_mean((DY - np.ones_like(DY) * np.abs(np.random.normal(1.0, softL_c))) ** 2)
     DY_loss_fake = reduce_mean((DY_fake_sample - np.zeros_like(DY_fake_sample)) ** 2)
     DY_loss = (DY_loss_real + DY_loss_fake) / 2
@@ -193,15 +199,26 @@ def dummy():
     DX_loss_fake = reduce_mean((DX_fake_sample - np.zeros_like(DX_fake_sample)) ** 2)
     DX_loss = (DX_loss_real + DX_loss_fake) / 2
 
-    test_X = None # TBD read images
-    test_Y = None # TBD read images
+    test_X = C.input(image_shape)
+    test_Y = C.input(image_shape)
 
-    testG = generator(test_X,  name="generatorG", reuse=True)
-    testF = generator(test_Y,  name="generatorF", reuse=True)
-    testF_back = generator(testG, name="generatorF", reuse=True)
-    testG_back = generator(testF, name="generatorG", reuse=True)
+    testG = genG.clone(
+        methond='share',
+        substitution={real_X.output:test_X.output}
+    )
+    testF = genF.clone(
+        methond='share',
+        substitution={real_Y.output:test_Y.output}
+    )
+    testF_back = genF_back.clone(
+        method='share',
+        substitution={genG.output:testG.output}
+    )
+    testG_back = genG_back.clone(
+        method='share',
+        substitution={genF.output:testF.output}
+    )
 
-    print('Optimizing')
     DX_optim= adam(DX_loss.parameters,
         lr=learning_rate_schedule(LR, UnitType.sample),
         momentum=momentum_schedule(0.5))
@@ -216,6 +233,23 @@ def dummy():
     F_optim = adam(g_loss_F.parameters,
                     lr=learning_rate_schedule(LR, UnitType.sample),
                     momentum=momentum_schedule(0.5))
+
+    return (real_X, real_Y, fake_X_sample, fake_Y_sample, test_X, test_Y,
+            DX_optim, DY_optim, G_optim, F_optim)
+
+if __name__=='__main__':
+
+    num_channels, image_height, image_width = (3, 256, 256)
+    h0 = C.input((num_channels, image_height, image_width))
+    genG = generator(h0)
+    disc = discriminator(h0)
+    # DEFINE OUR MODEL AND LOSS FUNCTIONS
+    # -------------------------------------------------------
+
+    real_X = None # read images
+    real_Y = None # TBD
+
+def dummy():
 
     for train_step in range(NUM_MINIBATCHES):
         generated_X, generated_Y = sess.run([genF, genG])
