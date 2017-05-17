@@ -27,7 +27,7 @@ NUM_MINIBATCHES = 5000
 LR = 0.0002
 MOMENTUM = 0.5  # equivalent to beta1
 MAP_FILE_X = "data//summer2winter_yosemite//trainA//map.txt"
-MAP_FILE_Y = "data//summer2winter_yosemite//trainA//map.txt"
+MAP_FILE_Y = "data//summer2winter_yosemite//trainB//map.txt"
 
 TB_LOGDIR_G_F = "tblogs_G_F"
 TB_LOGDIR_G_G = "tblogs_G_G"
@@ -172,13 +172,13 @@ def build_graph(image_shape, generator, discriminator):
     genG = generator(real_X_scaled)
     # genF(Y) => X            - fake_X
     genF = generator(real_Y_scaled)
-    # genF( genG(Y) ) => Y    - fake_X~
-    genF_back = genG.clone(
+    # genF( genG(Y) ) => X    - fake_X_loop
+    genF_back = genF.clone(
         method='share',
         substitutions={real_Y_scaled.output: genG.output}
     )
-    # genF( genG(X)) => X     - fake_Y~
-    genG_back = genF.clone(
+    # genG( genF(X)) => Y     - fake_Y_loop
+    genG_back = genG.clone(
         method='share',
         substitutions={real_Y_scaled.output: genF.output}
     )
@@ -211,11 +211,11 @@ def build_graph(image_shape, generator, discriminator):
     )
     DY_fake_sample = discY_fake.clone(
         method='share',
-        substitutions={genG.output : fake_Y_sample_scaled.output}
+        substitutions={genG.output : genG_back.output}
     )
     DX_fake_sample = discX_fake.clone(
         method='share',
-        substitutions={genF.output : fake_X_sample_scaled.output}
+        substitutions={genF.output : genF_back.output}
     )
 
     softL_c =0.05
@@ -312,7 +312,7 @@ def build_graph(image_shape, generator, discriminator):
         progress_writers=pp_D_X
     )
 
-    return (real_X, real_Y, fake_X_sample, fake_Y_sample,
+    return (real_X, real_Y, genF_back, genG_back,
             DX_optim, DY_optim, G_optim, F_optim, G_G_trainer, G_F_trainer, D_X_trainer, D_Y_trainer,
             tb_G_G, tb_G_F, tb_D_X, tb_D_Y)
 
@@ -340,7 +340,7 @@ def train():
         Y_data = reader_train_Y.next_minibatch(MINIBATCH_SIZE, input_map_Y)
         batch_inputs_Y = {real_Y: Y_data[real_Y].data}
 
-        G_G_trainer.train_minibatch(batch_inputs_X)
+#        G_G_trainer.train_minibatch(batch_inputs_X)
         generated_images_G = fake_Y_sample.eval(batch_inputs_X)
         D_X_trainer.train_minibatch(batch_inputs_Y, generated_images_G)
 
