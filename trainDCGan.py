@@ -2,6 +2,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+os.chdir('/home/pctds/gitrepos/cntk-cyclegan')
 import utils
 
 import cntk as C
@@ -54,7 +55,8 @@ print("Map file is {0}".format(MAP_FILE))
 
 # Creates a minibatch source for training or testing
 def create_mb_source(map_file, num_classes, randomize=True):
-    transforms = [xforms.scale(width=IMG_H,  height = IMG_H, channels= NUM_CHANNELS, interpolations='linear')]
+    transforms = [xforms.scale(width=IMG_H,  height = IMG_H, \
+                               channels= NUM_CHANNELS, interpolations='linear')]
     return MinibatchSource(ImageDeserializer(map_file, StreamDefs(
         features=StreamDef(field='image', transforms=transforms),
         labels=StreamDef(field='label', shape=num_classes))),
@@ -216,10 +218,19 @@ def build_graph(noise_shape, image_shape, generator, discriminator):
 
     return X_real, X_fake, Z, G_trainer, D_trainer, tb_G, tb_D
 
+model_dir = './trainedModels'
+Model_Labels = ['Generator']
+def save_trained_models(objects, object_labels, ckp_label, model_dir):
+    num_objects = len(objects)
+    for i in range(num_objects):
+        checkpoint_file = os.path.join(model_dir, \
+        "{}_{}.dnn".format(object_labels[i], ckp_label))
+        objects[i].save(checkpoint_file)
+
 
 def train(reader_train, generator, discriminator):
-    X_real, X_fake, Z, G_trainer, D_trainer, tb_G, tb_D = build_graph(G_INPUT_DIM, IMAGE_DIMS, generator,
-                                                                      discriminator)
+    X_real, X_fake, Z, G_trainer, D_trainer, tb_G, tb_D = \
+    build_graph(G_INPUT_DIM, IMAGE_DIMS, generator,discriminator)
 
     k = 2
 
@@ -245,7 +256,12 @@ def train(reader_train, generator, discriminator):
             noise = noise_sample(36)
             images = X_fake.eval(noise)
             utils.plot_images(images, subplot_shape=[6, 6],iteration=train_step)
-
+            #checkpoint_file = os.path.join(model_dir, "Generator_{}.dnn".format(train_step))
+            #G_trainer.save_checkpoint(checkpoint_file)
+            #checkpoint_file = os.path.join(model_dir, "Discriminator_{}.dnn".format(train_step))
+            #D_trainer.save_checkpoint(checkpoint_file)
+            save_trained_models([X_fake], Model_Labels, \
+                                train_step, model_dir)
         D_trainer.summarize_training_progress()
         G_trainer.summarize_training_progress()
 
@@ -253,7 +269,12 @@ def train(reader_train, generator, discriminator):
         utils.logTensorBoard(D_trainer, tb_D, "D", train_step)
 
         G_trainer_loss = G_trainer.previous_minibatch_loss_average
-
+    #checkpoint_file = os.path.join(model_dir, "Generator_Final.dnn")        
+    #G_trainer.save_checkpoint(checkpoint_file)
+    #checkpoint_file = os.path.join(model_dir, "Discriminator_Final.dnn")
+    #D_trainer.save_checkpoint(checkpoint_file)
+    save_trained_models([X_fake], Model_Labels, \
+                                'Final', model_dir)
     return Z, X_fake, G_trainer_loss
 
 
