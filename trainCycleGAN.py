@@ -26,6 +26,8 @@ MINIBATCH_SIZE = 128
 NUM_MINIBATCHES = 5000
 LR = 0.0002
 MOMENTUM = 0.5  # equivalent to beta1
+MAP_FILE_X = "data//trainingMNIST//map.txt"
+MAP_FILE_Y = "data//trainingMNIST//map.txt"
 
 # Creates a minibatch source for training or testing
 def create_mb_source(map_file, image_dims, num_classes, randomize=True):
@@ -246,17 +248,24 @@ if __name__=='__main__':
     # DEFINE OUR MODEL AND LOSS FUNCTIONS
     # -------------------------------------------------------
 
-    real_X = None # read images
-    real_Y = None # TBD
 
-def dummy():
+def train():
+    reader_train_X = create_mb_source(MAP_FILE_X, num_classes=10)
+    reader_train_Y = create_mb_source(MAP_FILE_Y, num_classes=10)
+    input_dynamic_axes = [C.Axis.default_batch_axis()]
+    real_X = C.input((3, 256, 256), dynamic_axes=input_dynamic_axes)
+    real_Y = C.input((3, 256, 256), dynamic_axes=input_dynamic_axes)
 
     for train_step in range(NUM_MINIBATCHES):
+        X_data = reader_train_X.next_minibatch(MINIBATCH_SIZE, input_map_X)
+        batch_inputs_X = {real_X: X_data[real_X].data}
+        genF.eval(batch_inputs_X)
+
+        Y_data = reader_train_Y.next_minibatch(MINIBATCH_SIZE, input_map_Y)
+        batch_inputs_Y = {real_X: X_data[real_Y].data}
+        genF.eval(batch_inputs_Y)
+
         generated_X, generated_Y = sess.run([genF, genG])
         _, _, _, _, summary_str = sess.run([G_optim, DY_optim, F_optim, DX_optim, summary_op],
-                                   feed_dict={fake_Y_sample: cache_Y.fetch(generated_Y),
-                                              fake_X_sample: cache_X.fetch(generated_X)})
-
-
-
-
+                                           feed_dict={fake_Y_sample: cache_Y.fetch(generated_Y),
+                                                      fake_X_sample: cache_X.fetch(generated_X)})
