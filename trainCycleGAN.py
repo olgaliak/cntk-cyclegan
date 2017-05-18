@@ -27,7 +27,7 @@ NUM_MINIBATCHES = 5000
 LR = 0.0002
 MOMENTUM = 0.5  # equivalent to beta1
 MAP_FILE_X = "data//summer2winter_yosemite//trainA//map.txt"
-MAP_FILE_Y = "data//summer2winter_yosemite//trainA//map.txt"
+MAP_FILE_Y = "data//summer2winter_yosemite//trainB//map.txt"
 
 TB_LOGDIR_G_F = "tblogs_G_F"
 TB_LOGDIR_G_G = "tblogs_G_G"
@@ -156,14 +156,14 @@ def discriminator(h0):
 
 def build_graph(image_shape, generator, discriminator):
     input_dynamic_axes = [C.Axis.default_batch_axis()]
-    real_X = C.input(image_shape, dynamic_axes=input_dynamic_axes)
-    real_Y = C.input(image_shape, dynamic_axes=input_dynamic_axes)
+    real_X = C.input(image_shape, dynamic_axes=input_dynamic_axes, name="real_X")
+    real_Y = C.input(image_shape, dynamic_axes=input_dynamic_axes, name="real_Y")
 
     real_X_scaled = real_X/1.0
     real_Y_scaled = real_Y/1.0
 
-    fake_X_sample = C.input(image_shape,  dynamic_axes=input_dynamic_axes)
-    fake_Y_sample = C.input(image_shape,  dynamic_axes=input_dynamic_axes)
+    fake_X_sample = C.input(image_shape,  dynamic_axes=input_dynamic_axes, name="fake_X_sample")
+    fake_Y_sample = C.input(image_shape,  dynamic_axes=input_dynamic_axes, name="fake_Y_sample")
 
     fake_X_sample_scaled = fake_X_sample/1.0
     fake_Y_sample_scaled = fake_Y_sample/1.0
@@ -227,8 +227,8 @@ def build_graph(image_shape, generator, discriminator):
     DX_loss_fake = reduce_mean(square(DX_fake_sample - 1.0))
     DX_loss = (DX_loss_real + DX_loss_fake) / 2
 
-    test_X = C.input(image_shape)
-    test_Y = C.input(image_shape)
+    #test_X = C.input(image_shape)
+    #test_Y = C.input(image_shape)
 
     # testG = genG.clone(
     #     methond='share',
@@ -327,10 +327,8 @@ def train():
             tb_G_G, tb_G_F, tb_D_X, tb_D_Y = build_graph(image_shape=IMAGE_DIMS,generator=generator, discriminator=discriminator)
 
     input_dynamic_axes = [C.Axis.default_batch_axis()]
-    real_X = C.input((3, 256, 256), dynamic_axes=input_dynamic_axes)
-    real_Y = C.input((3, 256, 256), dynamic_axes=input_dynamic_axes)
-
-    real_Y = C.input((3, 256, 256), dynamic_axes=input_dynamic_axes)
+    real_X = C.input((3, 256, 256), dynamic_axes=input_dynamic_axes, name="realX")
+    real_Y = C.input((3, 256, 256), dynamic_axes=input_dynamic_axes, name="realY")
 
     input_map_X = {real_X: reader_train_X.streams.features}
     input_map_Y = {real_Y: reader_train_Y.streams.features}
@@ -340,9 +338,9 @@ def train():
         Y_data = reader_train_Y.next_minibatch(MINIBATCH_SIZE, input_map_Y)
         batch_inputs_Y = {real_Y: Y_data[real_Y].data}
 
-        G_G_trainer.train_minibatch(batch_inputs_X)
+       # G_G_trainer.train_minibatch(batch_inputs_X)
         generated_images_G = fake_Y_sample.eval(batch_inputs_X)
-        D_X_trainer.train_minibatch(batch_inputs_Y, generated_images_G)
+        D_X_trainer.train_minibatch(batch_inputs_Y, batch_inputs_Y)
 
         G_F_trainer.train_minibatch(batch_inputs_Y)
         generated_images_F = fake_X_sample.eval(batch_inputs_Y)
