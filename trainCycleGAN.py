@@ -162,12 +162,6 @@ def build_graph(image_shape, generator, discriminator):
     real_X_scaled = real_X/1.0
     real_Y_scaled = real_Y/1.0
 
-    fake_X_sample = C.input(image_shape,  dynamic_axes=input_dynamic_axes, name="fake_X_sample")
-    fake_Y_sample = C.input(image_shape,  dynamic_axes=input_dynamic_axes, name="fake_Y_sample")
-
-    fake_X_sample_scaled = fake_X_sample/1.0
-    fake_Y_sample_scaled = fake_Y_sample/1.0
-
     # genG(X) => Y            - fake_Y
     genG = generator(real_X_scaled)
     # genF(Y) => X            - fake_X
@@ -226,26 +220,6 @@ def build_graph(image_shape, generator, discriminator):
     DX_loss_real = reduce_mean(square(DX - 1.0))
     DX_loss_fake = reduce_mean(square(DX_fake_sample - 1.0))
     DX_loss = (DX_loss_real + DX_loss_fake) / 2
-
-    #test_X = C.input(image_shape)
-    #test_Y = C.input(image_shape)
-
-    # testG = genG.clone(
-    #     methond='share',
-    #     substitution={real_X.output:test_X.output}
-    # )
-    # testF = genF.clone(
-    #     methond='share',
-    #     substitution={real_Y.output:test_Y.output}
-    # )
-    # testF_back = genF_back.clone(
-    #     method='share',
-    #     substitution={genG.output:testG.output}
-    # )
-    # testG_back = genG_back.clone(
-    #     method='share',
-    #     substitution={genF.output:testF.output}
-    # )
 
     DX_optim= adam(DX_loss.parameters,
         lr=learning_rate_schedule(LR, UnitType.sample),
@@ -335,7 +309,8 @@ def train():
         batch_inputs_Y = {real_Y: Y_data[real_Y].data}
 
         G_G_trainer.train_minibatch(batch_inputs_X)
-        D_X_trainer.train_minibatch(batch_inputs_Y, generated_images_G )
+        generated_images_G = genG.eval(batch_inputs_X)
+        D_X_trainer.train_minibatch(batch_inputs_Y, generated_images_G)
 
         G_F_trainer.train_minibatch(batch_inputs_Y)
         generated_images_F = genF.eval(batch_inputs_Y)
@@ -356,8 +331,4 @@ def train():
         G_F_trainer_loss = G_F_trainer.previous_minibatch_loss_average
 
 if __name__ == '__main__':
-    # num_channels, image_height, image_width = (3, 256, 256)
-    # h0 = C.input((num_channels, image_height, image_width))
-    # genG = generator(h0)
-    # disc = discriminator(h0)
     train()
