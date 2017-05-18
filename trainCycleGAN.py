@@ -312,7 +312,7 @@ def build_graph(image_shape, generator, discriminator):
         progress_writers=pp_D_X
     )
 
-    return (real_X, real_Y, genF_back, genG_back,
+    return (real_X, real_Y, genF, genG,
             DX_optim, DY_optim, G_optim, F_optim, G_G_trainer, G_F_trainer, D_X_trainer, D_Y_trainer,
             tb_G_G, tb_G_F, tb_D_X, tb_D_Y)
 
@@ -321,14 +321,10 @@ def train():
 
     reader_train_X = create_mb_source(MAP_FILE_X, num_classes=10)
     reader_train_Y = create_mb_source(MAP_FILE_Y, num_classes=10)
-    real_X, real_Y, fake_X_sample, fake_Y_sample, \
+    real_X, real_Y, genF, genG, \
             DX_optim, DY_optim, G_optim, F_optim, \
             G_G_trainer, G_F_trainer, D_X_trainer, D_Y_trainer, \
             tb_G_G, tb_G_F, tb_D_X, tb_D_Y = build_graph(image_shape=IMAGE_DIMS,generator=generator, discriminator=discriminator)
-
-    input_dynamic_axes = [C.Axis.default_batch_axis()]
-    real_X = C.input((3, 256, 256), dynamic_axes=input_dynamic_axes, name="realX")
-    real_Y = C.input((3, 256, 256), dynamic_axes=input_dynamic_axes, name="realY")
 
     input_map_X = {real_X: reader_train_X.streams.features}
     input_map_Y = {real_Y: reader_train_Y.streams.features}
@@ -339,11 +335,10 @@ def train():
         batch_inputs_Y = {real_Y: Y_data[real_Y].data}
 
         G_G_trainer.train_minibatch(batch_inputs_X)
-        generated_images_G = fake_Y_sample.eval(batch_inputs_X)
-        D_X_trainer.train_minibatch(batch_inputs_Y, batch_inputs_Y)
+        D_X_trainer.train_minibatch(batch_inputs_Y, generated_images_G )
 
         G_F_trainer.train_minibatch(batch_inputs_Y)
-        generated_images_F = fake_X_sample.eval(batch_inputs_Y)
+        generated_images_F = genF.eval(batch_inputs_Y)
         D_Y_trainer.train_minibatch(batch_inputs_X, generated_images_F)
 
         G_G_trainer.summarize_training_progress()
