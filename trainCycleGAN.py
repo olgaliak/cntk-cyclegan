@@ -177,7 +177,7 @@ def build_graph(image_shape, generator, discriminator):
         method='share',
         substitutions={real_X_scaled.output: genF.output}
     )
- 
+    
     # DY_fake is the discriminator for Y that takes in genG(X)
     # DX_fake is the discriminator for X that takes in genF(Y)
     discY_fake = discriminator(genG)
@@ -318,7 +318,7 @@ def train():
         
         G_F_trainer.train_minibatch(batch_inputs_X_Y)
         generated_images_F = genF.eval(batch_inputs_Y)
-        D_Y_trainer.train_minibatch({real_X: X_data[real_X].data, real_X : generated_images_F})
+        D_Y_trainer.train_minibatch({real_X: X_data[real_X].data, real_Y : generated_images_F})
 
         G_G_trainer.summarize_training_progress()
         D_X_trainer.summarize_training_progress()
