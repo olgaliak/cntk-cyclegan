@@ -314,11 +314,11 @@ def train():
         batch_inputs_X_Y = {real_X : X_data[real_X].data, real_Y : Y_data[real_Y].data}
         G_G_trainer.train_minibatch(batch_inputs_X_Y)
         generated_images_G = genG.eval(batch_inputs_X)
-        D_X_trainer.train_minibatch({real_X : generated_images_G, real_Y : Y_data[real_Y].data})
+        D_X_trainer.train_minibatch(batch_inputs_X_Y)
         
         G_F_trainer.train_minibatch(batch_inputs_X_Y)
         generated_images_F = genF.eval(batch_inputs_Y)
-        D_Y_trainer.train_minibatch({real_X: X_data[real_X].data, real_Y : generated_images_F})
+        D_Y_trainer.train_minibatch(batch_inputs_X_Y)
 
         G_G_trainer.summarize_training_progress()
         D_X_trainer.summarize_training_progress()
