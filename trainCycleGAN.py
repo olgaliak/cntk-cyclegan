@@ -172,10 +172,12 @@ def build_graph(image_shape, generator, discriminator):
         substitutions={real_Y_scaled.output: genG.output}
     )
     # genG( genF(X)) => Y     - fake_Y_loop
+
     genG_back = genG.clone(
         method='share',
-        substitutions={real_Y_scaled.output: genF.output}
+        substitutions={real_X_scaled.output: genF.output}
     )
+    
     # DY_fake is the discriminator for Y that takes in genG(X)
     # DX_fake is the discriminator for X that takes in genF(Y)
     discY_fake = discriminator(genG)
@@ -184,6 +186,7 @@ def build_graph(image_shape, generator, discriminator):
     g_loss_G = reduce_mean(square(discY_fake - 1.0)) \
             + L1_lambda * reduce_mean(abs(real_X - genF_back)) \
             + L1_lambda * reduce_mean(abs(real_Y - genG_back))
+            
 
    # g_loss_G = reduce_mean((discY_fake - np.ones(discY_fake)) ** 2) \
    #            + L1_lambda * reduce_mean(abs(real_X - genF_back)) \
@@ -307,14 +310,15 @@ def train():
         batch_inputs_X = {real_X: X_data[real_X].data}
         Y_data = reader_train_Y.next_minibatch(MINIBATCH_SIZE, input_map_Y)
         batch_inputs_Y = {real_Y: Y_data[real_Y].data}
-
-        G_G_trainer.train_minibatch(batch_inputs_X)
+        
+        batch_inputs_X_Y = {real_X : X_data[real_X].data, real_Y : Y_data[real_Y].data}
+        G_G_trainer.train_minibatch(batch_inputs_X_Y)
         generated_images_G = genG.eval(batch_inputs_X)
-        D_X_trainer.train_minibatch(batch_inputs_Y, generated_images_G)
-
-        G_F_trainer.train_minibatch(batch_inputs_Y)
+        D_X_trainer.train_minibatch(batch_inputs_X_Y)
+        
+        G_F_trainer.train_minibatch(batch_inputs_X_Y)
         generated_images_F = genF.eval(batch_inputs_Y)
-        D_Y_trainer.train_minibatch(batch_inputs_X, generated_images_F)
+        D_Y_trainer.train_minibatch(batch_inputs_X_Y)
 
         G_G_trainer.summarize_training_progress()
         D_X_trainer.summarize_training_progress()
