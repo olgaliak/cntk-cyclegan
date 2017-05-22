@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import utils
+from scipy.misc import imsave
 
 import cntk as C
 from cntk import Trainer
@@ -24,6 +25,11 @@ L1_lambda = 10
 # training config
 MINIBATCH_SIZE = 4
 NUM_MINIBATCHES = 5000
+PROGRESS_SAVE_STEP = 100
+
+MODELS_DIR = './trained_models'
+GENERATED_IMAGES_DIR = "./generated_images"
+
 LR = 0.0002
 MOMENTUM = 0.5  # equivalent to beta1
 MAP_FILE_X = "data//summer2winter_yosemite//trainA//map.txt"
@@ -293,6 +299,28 @@ def build_graph(image_shape, generator, discriminator):
             DX_optim, DY_optim, G_optim, F_optim, G_G_trainer, G_F_trainer, D_X_trainer, D_Y_trainer,
             tb_G_G, tb_G_F, tb_D_X, tb_D_Y)
 
+def save_trained_models(objects, object_labels, ckp_label, model_dir):
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir)
+
+    for i in range(len(objects)):
+        checkpoint_file = os.path.join(model_dir, \
+        "{}_{}.dnn".format(object_labels[i], ckp_label))
+        objects[i].save(checkpoint_file)
+
+
+def save_generated_images(images, model_name, train_step, images_dir):
+    model_images_dir = os.path.join(images_dir, "%s_%d"%(model_name,train_step))
+    if not os.path.exists(model_images_dir):
+        os.makedirs(model_images_dir)
+
+    for i in range(len(images)):
+        #img = images[i].transpose(1,2,0)
+        img = images[i].transpose(2,1,0)
+        img_file_path = os.path.join(model_images_dir, "%d.png"%i)
+        imsave(img_file_path, img)
+
+
 def train():
     print("Starting training")
 
@@ -306,6 +334,7 @@ def train():
     input_map_X = {real_X: reader_train_X.streams.features}
     input_map_Y = {real_Y: reader_train_Y.streams.features}
     for train_step in range(NUM_MINIBATCHES):
+        print("Iteration %d out of %d"%(train_step, NUM_MINIBATCHES))
         X_data = reader_train_X.next_minibatch(MINIBATCH_SIZE, input_map_X)
         batch_inputs_X = {real_X: X_data[real_X].data}
         Y_data = reader_train_Y.next_minibatch(MINIBATCH_SIZE, input_map_Y)
@@ -333,6 +362,15 @@ def train():
 
         G_G_trainer_loss = G_G_trainer.previous_minibatch_loss_average
         G_F_trainer_loss = G_F_trainer.previous_minibatch_loss_average
+
+        if (train_step > 0 and train_step % PROGRESS_SAVE_STEP == 0):
+                print("Saving current model at iteration %d"%train_step)
+                save_trained_models([G_G_trainer.model, G_F_trainer.model, D_X_trainer.model, D_Y_trainer.model], ["G_G", "G_F", "D_X", "D_Y"], \
+                                '%d'%train_step, MODELS_DIR)
+                save_generated_images(generated_images_G, "G", train_step, GENERATED_IMAGES_DIR)
+                save_generated_images(generated_images_G, "F", train_step, GENERATED_IMAGES_DIR)
+                
+
 
 if __name__ == '__main__':
     train()
