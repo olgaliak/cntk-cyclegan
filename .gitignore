@@ -5,3 +5,6 @@ data/*
 *testRes*
 .idea
 __pycache__
+generated_images
+trained_models
+trainedModels

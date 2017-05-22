@@ -20,10 +20,12 @@ from cntk.logging import ProgressPrinter, TensorBoardProgressWriter
 
 import cntk.io.transforms as xforms
 
+C.device.try_set_default_device(C.device.gpu(0))
+
 L1_lambda = 10
 
 # training config
-MINIBATCH_SIZE = 4
+MINIBATCH_SIZE = 1
 NUM_MINIBATCHES = 5000
 PROGRESS_SAVE_STEP = 100
 
@@ -165,8 +167,8 @@ def build_graph(image_shape, generator, discriminator):
     real_X = C.input(image_shape, dynamic_axes=input_dynamic_axes, name="real_X")
     real_Y = C.input(image_shape, dynamic_axes=input_dynamic_axes, name="real_Y")
 
-    real_X_scaled = real_X/1.0
-    real_Y_scaled = real_Y/1.0
+    real_X_scaled = real_X/255
+    real_Y_scaled = real_Y/255
 
     # genG(X) => Y            - fake_Y
     genG = generator(real_X_scaled)
@@ -178,29 +180,29 @@ def build_graph(image_shape, generator, discriminator):
         substitutions={real_Y_scaled.output: genG.output}
     )
     # genG( genF(X)) => Y     - fake_Y_loop
-
     genG_back = genG.clone(
         method='share',
         substitutions={real_X_scaled.output: genF.output}
     )
     
-    # DY_fake is the discriminator for Y that takes in genG(X)
-    # DX_fake is the discriminator for X that takes in genF(Y)
+    # discY_fake is the discriminator for Y that takes in genG(X)
+    # discX_fake is the discriminator for X that takes in genF(Y)
     discY_fake = discriminator(genG)
     discX_fake = discriminator(genF)
 
-    g_loss_G = reduce_mean(square(discY_fake - 1.0)) \
-            + L1_lambda * reduce_mean(abs(real_X - genF_back)) \
-            + L1_lambda * reduce_mean(abs(real_Y - genG_back))
-            
+    # discY_fake is the discriminator for Y that takes in genG(X)=Y~
+    # genF_back --  fake_X_loop
+    # genG_back -- fake_Y_loop
 
-   # g_loss_G = reduce_mean((discY_fake - np.ones(discY_fake)) ** 2) \
-   #            + L1_lambda * reduce_mean(abs(real_X - genF_back)) \
-    #           + L1_lambda * reduce_mean(abs(real_Y - genG_back))
+    g_loss_G = reduce_mean(square(discY_fake - 1.0)) \
+            + L1_lambda * reduce_mean(abs(real_X_scaled - genF_back)) \
+            + L1_lambda * reduce_mean(abs(real_Y_scaled - genG_back))
+
+
 
     g_loss_F = reduce_mean(square(discX_fake - 1.0)) \
-            + L1_lambda * reduce_mean(abs(real_X - genF_back)) \
-            + L1_lambda * reduce_mean(abs(real_Y - genG_back))
+            + L1_lambda * reduce_mean(abs(real_X_scaled - genF_back)) \
+            + L1_lambda * reduce_mean(abs(real_Y_scaled - genG_back))
 
     # DY is the discriminator for Y that takes in Y
     # DX is the discriminator for X that takes in X
@@ -221,7 +223,6 @@ def build_graph(image_shape, generator, discriminator):
         substitutions={genF.output : genF_back.output}
     )
 
-    softL_c =0.05
     DY_loss_real = reduce_mean(square(DY - 1.0))
     DY_loss_fake = reduce_mean(square(DY_fake_sample - 1.0))
     DY_loss = (DY_loss_real + DY_loss_fake) / 2
@@ -295,7 +296,7 @@ def build_graph(image_shape, generator, discriminator):
         progress_writers=pp_D_X
     )
 
-    return (real_X, real_Y, genF, genG,
+    return (real_X, real_Y, genF, genG, real_X_scaled, real_Y_scaled,
             DX_optim, DY_optim, G_optim, F_optim, G_G_trainer, G_F_trainer, D_X_trainer, D_Y_trainer,
             tb_G_G, tb_G_F, tb_D_X, tb_D_Y)
 
@@ -317,16 +318,32 @@ def save_generated_images(images, model_name, train_step, images_dir):
     for i in range(len(images)):
         #img = images[i].transpose(1,2,0)
         img = images[i].transpose(2,1,0)
+        img = img * 255
         img_file_path = os.path.join(model_images_dir, "%d.png"%i)
         imsave(img_file_path, img)
 
+        rgb = img
+        bgr = rgb[..., ::-1]
+        img_file_path = os.path.join(model_images_dir, "%d_bgr.png" % i)
+        imsave(img_file_path, bgr)
+
+
+def save_real_image(image, model_name, train_step, images_dir):
+    model_images_dir = os.path.join(images_dir, "%s_%d" % (model_name, train_step))
+    if not os.path.exists(model_images_dir):
+        os.makedirs(model_images_dir)
+
+    # img = images[i].transpose(1,2,0)
+    img = image.transpose(2, 1, 0)
+    img_file_path = os.path.join(model_images_dir, "%d.png" % i)
+    imsave(img_file_path, img)
 
 def train():
     print("Starting training")
 
     reader_train_X = create_mb_source(MAP_FILE_X, num_classes=10)
     reader_train_Y = create_mb_source(MAP_FILE_Y, num_classes=10)
-    real_X, real_Y, genF, genG, \
+    real_X, real_Y, genF, genG, real_X_scaled, real_Y_scaled, \
             DX_optim, DY_optim, G_optim, F_optim, \
             G_G_trainer, G_F_trainer, D_X_trainer, D_Y_trainer, \
             tb_G_G, tb_G_F, tb_D_X, tb_D_Y = build_graph(image_shape=IMAGE_DIMS,generator=generator, discriminator=discriminator)
@@ -339,15 +356,16 @@ def train():
         batch_inputs_X = {real_X: X_data[real_X].data}
         Y_data = reader_train_Y.next_minibatch(MINIBATCH_SIZE, input_map_Y)
         batch_inputs_Y = {real_Y: Y_data[real_Y].data}
-        
+
+        # Uncomment to get the input images saved to dis
+        #save_generated_images(X_data[real_X].value[0], "real_X", train_step, GENERATED_IMAGES_DIR)
+        #save_generated_images(Y_data[real_Y].value[0], "real_Y", train_step, GENERATED_IMAGES_DIR)
+
         batch_inputs_X_Y = {real_X : X_data[real_X].data, real_Y : Y_data[real_Y].data}
         G_G_trainer.train_minibatch(batch_inputs_X_Y)
-        generated_images_G = genG.eval(batch_inputs_X)
-        D_X_trainer.train_minibatch(batch_inputs_X_Y)
-        
+        D_Y_trainer.train_minibatch(batch_inputs_X_Y)  #
         G_F_trainer.train_minibatch(batch_inputs_X_Y)
-        generated_images_F = genF.eval(batch_inputs_Y)
-        D_Y_trainer.train_minibatch(batch_inputs_X_Y)
+        D_X_trainer.train_minibatch(batch_inputs_X_Y)
 
         G_G_trainer.summarize_training_progress()
         D_X_trainer.summarize_training_progress()
@@ -365,10 +383,15 @@ def train():
 
         if (train_step > 0 and train_step % PROGRESS_SAVE_STEP == 0):
                 print("Saving current model at iteration %d"%train_step)
-                save_trained_models([G_G_trainer.model, G_F_trainer.model, D_X_trainer.model, D_Y_trainer.model], ["G_G", "G_F", "D_X", "D_Y"], \
-                                '%d'%train_step, MODELS_DIR)
+
+               # Commening out save model step to make training go faster
+               # save_trained_models([G_G_trainer.model, G_F_trainer.model, D_X_trainer.model, D_Y_trainer.model], ["G_G", "G_F", "D_X", "D_Y"], \
+               #                '%d'%train_step, MODELS_DIR)
+
+                generated_images_G = genG.eval(batch_inputs_X)  # G(X) -> Y~
                 save_generated_images(generated_images_G, "G", train_step, GENERATED_IMAGES_DIR)
-                save_generated_images(generated_images_G, "F", train_step, GENERATED_IMAGES_DIR)
+                generated_images_F = genF.eval(batch_inputs_Y)
+                save_generated_images(generated_images_F, "F", train_step, GENERATED_IMAGES_DIR)
                 
 
 
