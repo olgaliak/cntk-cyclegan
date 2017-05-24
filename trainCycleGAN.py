@@ -25,9 +25,10 @@ C.device.try_set_default_device(C.device.gpu(0))
 L1_lambda = 10
 
 # training config
-MINIBATCH_SIZE = 1
-NUM_MINIBATCHES = 5000
-PROGRESS_SAVE_STEP = 100
+MINIBATCH_SIZE = 4
+NUM_MINIBATCHES = 500000
+PROGRESS_SAVE_STEP = 200
+MODEL_SAVE_STEP = 400
 
 MODELS_DIR = './trained_models'
 GENERATED_IMAGES_DIR = "./generated_images"
@@ -46,8 +47,8 @@ NUM_CHANNELS = 3
 IMG_H, IMG_W = 256, 256
 IMAGE_DIMS = (NUM_CHANNELS, IMG_H, IMG_W)
 
-# Creates a minibatch source for training or testing
-def create_mb_source(map_file, num_classes, randomize=True):
+# Creates a minibatch source for training or testing (using dummy value for classes
+def create_mb_source(map_file, num_classes = 10, randomize=True):
     transforms = [xforms.scale(width=IMG_H,  height = IMG_H, \
                               channels= NUM_CHANNELS, interpolations='linear')]
     return MinibatchSource(ImageDeserializer(map_file, StreamDefs(
@@ -341,8 +342,8 @@ def save_real_image(image, model_name, train_step, images_dir):
 def train():
     print("Starting training")
 
-    reader_train_X = create_mb_source(MAP_FILE_X, num_classes=10)
-    reader_train_Y = create_mb_source(MAP_FILE_Y, num_classes=10)
+    reader_train_X = create_mb_source(MAP_FILE_X)
+    reader_train_Y = create_mb_source(MAP_FILE_Y)
     real_X, real_Y, genF, genG, real_X_scaled, real_Y_scaled, \
             DX_optim, DY_optim, G_optim, F_optim, \
             G_G_trainer, G_F_trainer, D_X_trainer, D_Y_trainer, \
@@ -356,11 +357,6 @@ def train():
         batch_inputs_X = {real_X: X_data[real_X].data}
         Y_data = reader_train_Y.next_minibatch(MINIBATCH_SIZE, input_map_Y)
         batch_inputs_Y = {real_Y: Y_data[real_Y].data}
-
-        # Uncomment to get the input images saved to dis
-        #save_generated_images(X_data[real_X].value[0], "real_X", train_step, GENERATED_IMAGES_DIR)
-        #save_generated_images(Y_data[real_Y].value[0], "real_Y", train_step, GENERATED_IMAGES_DIR)
-
         batch_inputs_X_Y = {real_X : X_data[real_X].data, real_Y : Y_data[real_Y].data}
         G_G_trainer.train_minibatch(batch_inputs_X_Y)
         D_Y_trainer.train_minibatch(batch_inputs_X_Y)  #
@@ -382,18 +378,19 @@ def train():
         G_F_trainer_loss = G_F_trainer.previous_minibatch_loss_average
 
         if (train_step > 0 and train_step % PROGRESS_SAVE_STEP == 0):
-                print("Saving current model at iteration %d"%train_step)
+            generated_images_G = genG.eval(batch_inputs_X)  # G(X) -> Y~
+            save_generated_images(generated_images_G, "G", train_step, GENERATED_IMAGES_DIR)
+            generated_images_F = genF.eval(batch_inputs_Y)
+            save_generated_images(generated_images_F, "F", train_step, GENERATED_IMAGES_DIR)
 
-               # Commening out save model step to make training go faster
-               # save_trained_models([G_G_trainer.model, G_F_trainer.model, D_X_trainer.model, D_Y_trainer.model], ["G_G", "G_F", "D_X", "D_Y"], \
-               #                '%d'%train_step, MODELS_DIR)
+            # Uncomment to get the input images saved to dis
+            save_generated_images(X_data[real_X].value[0], "real_X", train_step, GENERATED_IMAGES_DIR)
+            save_generated_images(Y_data[real_Y].value[0], "real_Y", train_step, GENERATED_IMAGES_DIR)
 
-                generated_images_G = genG.eval(batch_inputs_X)  # G(X) -> Y~
-                save_generated_images(generated_images_G, "G", train_step, GENERATED_IMAGES_DIR)
-                generated_images_F = genF.eval(batch_inputs_Y)
-                save_generated_images(generated_images_F, "F", train_step, GENERATED_IMAGES_DIR)
-                
-
+        if (train_step > 0 and train_step % MODEL_SAVE_STEP == 0):
+            print("Saving current model at iteration %d" % train_step)
+            save_trained_models([G_G_trainer.model, G_F_trainer.model, D_X_trainer.model, D_Y_trainer.model],
+                        ["G_G", "G_F", "D_X", "D_Y"], '%d' % train_step, MODELS_DIR)
 
 if __name__ == '__main__':
     train()
