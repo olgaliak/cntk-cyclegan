@@ -1,24 +1,17 @@
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-import numpy as np
-import os
-import utils
-from scipy.misc import imsave
-
 import cntk as C
 from cntk import Trainer
 from cntk.layers import default_options
 from cntk.initializer import he_normal
 from cntk.layers import AveragePooling, BatchNormalization, LayerNormalization, Convolution, ConvolutionTranspose2D, Dense
 from cntk.ops import element_times, relu, leaky_relu, reduce_mean, abs, square
-import cntk.device
 from cntk.io import (MinibatchSource, ImageDeserializer, CTFDeserializer, StreamDef, StreamDefs,
                      INFINITELY_REPEAT)
 from cntk.learners import (adam, UnitType, learning_rate_schedule,
                            momentum_as_time_constant_schedule, momentum_schedule)
 from cntk.logging import ProgressPrinter, TensorBoardProgressWriter
-
 import cntk.io.transforms as xforms
+
+import utils
 
 C.device.try_set_default_device(C.device.gpu(0))
 
@@ -27,8 +20,8 @@ L1_lambda = 10
 # training config
 MINIBATCH_SIZE = 4
 NUM_MINIBATCHES = 500000
-PROGRESS_SAVE_STEP = 200
-MODEL_SAVE_STEP = 400
+PROGRESS_SAVE_STEP = 20
+MODEL_SAVE_STEP = 200
 
 MODELS_DIR = './trained_models'
 GENERATED_IMAGES_DIR = "./generated_images"
@@ -301,44 +294,6 @@ def build_graph(image_shape, generator, discriminator):
             DX_optim, DY_optim, G_optim, F_optim, G_G_trainer, G_F_trainer, D_X_trainer, D_Y_trainer,
             tb_G_G, tb_G_F, tb_D_X, tb_D_Y)
 
-def save_trained_models(objects, object_labels, ckp_label, model_dir):
-    if not os.path.exists(model_dir):
-        os.makedirs(model_dir)
-
-    for i in range(len(objects)):
-        checkpoint_file = os.path.join(model_dir, \
-        "{}_{}.dnn".format(object_labels[i], ckp_label))
-        objects[i].save(checkpoint_file)
-
-
-def save_generated_images(images, model_name, train_step, images_dir):
-    model_images_dir = os.path.join(images_dir, "%s_%d"%(model_name,train_step))
-    if not os.path.exists(model_images_dir):
-        os.makedirs(model_images_dir)
-
-    for i in range(len(images)):
-        #img = images[i].transpose(1,2,0)
-        img = images[i].transpose(2,1,0)
-        img = img * 255
-        img_file_path = os.path.join(model_images_dir, "%d.png"%i)
-        imsave(img_file_path, img)
-
-        rgb = img
-        bgr = rgb[..., ::-1]
-        img_file_path = os.path.join(model_images_dir, "%d_bgr.png" % i)
-        imsave(img_file_path, bgr)
-
-
-def save_real_image(image, model_name, train_step, images_dir):
-    model_images_dir = os.path.join(images_dir, "%s_%d" % (model_name, train_step))
-    if not os.path.exists(model_images_dir):
-        os.makedirs(model_images_dir)
-
-    # img = images[i].transpose(1,2,0)
-    img = image.transpose(2, 1, 0)
-    img_file_path = os.path.join(model_images_dir, "%d.png" % i)
-    imsave(img_file_path, img)
-
 def train():
     print("Starting training")
 
@@ -379,17 +334,17 @@ def train():
 
         if (train_step > 0 and train_step % PROGRESS_SAVE_STEP == 0):
             generated_images_G = genG.eval(batch_inputs_X)  # G(X) -> Y~
-            save_generated_images(generated_images_G, "G", train_step, GENERATED_IMAGES_DIR)
+            utils.save_generated_images(generated_images_G, "G", train_step, GENERATED_IMAGES_DIR)
             generated_images_F = genF.eval(batch_inputs_Y)
-            save_generated_images(generated_images_F, "F", train_step, GENERATED_IMAGES_DIR)
+            utils.save_generated_images(generated_images_F, "F", train_step, GENERATED_IMAGES_DIR)
 
             # Uncomment to get the input images saved to dis
-            save_generated_images(X_data[real_X].value[0], "real_X", train_step, GENERATED_IMAGES_DIR)
-            save_generated_images(Y_data[real_Y].value[0], "real_Y", train_step, GENERATED_IMAGES_DIR)
+            utils.save_generated_images(X_data[real_X].value[0], "real_X", train_step, GENERATED_IMAGES_DIR)
+            utils.save_generated_images(Y_data[real_Y].value[0], "real_Y", train_step, GENERATED_IMAGES_DIR)
 
         if (train_step > 0 and train_step % MODEL_SAVE_STEP == 0):
             print("Saving current model at iteration %d" % train_step)
-            save_trained_models([G_G_trainer.model, G_F_trainer.model, D_X_trainer.model, D_Y_trainer.model],
+            utils.save_trained_models([G_G_trainer.model, G_F_trainer.model, D_X_trainer.model, D_Y_trainer.model],
                         ["G_G", "G_F", "D_X", "D_Y"], '%d' % train_step, MODELS_DIR)
 
 if __name__ == '__main__':
